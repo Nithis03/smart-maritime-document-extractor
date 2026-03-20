@@ -1,6 +1,7 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LLMProvider } from './llm-provider.interface';
+import { withTimeout } from '../common/utils/timeout.util';
 
 @Injectable()
 export class GeminiService implements LLMProvider {
@@ -58,13 +59,18 @@ export class GeminiService implements LLMProvider {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const response = await fetch(url, {
+    const controller = new AbortController();
+
+    const fetchPromise = fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: controller.signal as any, // Node fetch built-in signal mapping
     });
+
+    const response = await withTimeout(fetchPromise, 30000, controller);
 
     if (!response.ok) {
       const errorText = await response.text();

@@ -7,6 +7,7 @@ import { LLMProvider } from '../../llm/llm-provider.interface';
 import { LLM_PROVIDER } from '../../llm/llm.module';
 import { generateSha256Hash } from '../../common/utils/hash.util';
 import { extractJsonFromText } from '../../common/utils/json-extractor.util';
+import { TimeoutException } from '../../common/utils/timeout.util';
 
 @Injectable()
 export class ExtractService {
@@ -58,6 +59,7 @@ export class ExtractService {
     try {
       rawLlmResponse = await this.llmProvider.extractDocument(base64File, file.mimetype);
     } catch (error) {
+      const isTimeout = error instanceof TimeoutException || error?.name === 'TimeoutException';
       const errMsg = error instanceof Error ? error.message : String(error);
       this.logger.error(`LLM Extraction failed: ${errMsg}`);
       
@@ -66,6 +68,8 @@ export class ExtractService {
         fileName: file.originalname,
         fileHash: fileHash,
         status: ExtractionStatus.FAILED,
+        isRetryable: isTimeout,
+        errorMessage: errMsg,
         processingTimeMs: Date.now() - startTime,
       });
 
@@ -98,7 +102,9 @@ export class ExtractService {
           throw new Error('Repaired JSON is still not a valid object');
         }
       } catch (repairError) {
-        this.logger.error(`Repair failed: ${repairError instanceof Error ? repairError.message : String(repairError)}`);
+        const isTimeout = repairError instanceof TimeoutException || repairError?.name === 'TimeoutException';
+        const errMsg = repairError instanceof Error ? repairError.message : String(repairError);
+        this.logger.error(`Repair failed: ${errMsg}`);
         
         // Mark extraction as FAILED, Store raw response
         const failedExtraction = this.extractionRepository.create({
@@ -106,6 +112,8 @@ export class ExtractService {
           fileName: file.originalname,
           fileHash: fileHash,
           status: ExtractionStatus.FAILED,
+          isRetryable: isTimeout,
+          errorMessage: errMsg,
           rawLlmResponse: finalRawResponse,
           processingTimeMs: Date.now() - startTime,
         });

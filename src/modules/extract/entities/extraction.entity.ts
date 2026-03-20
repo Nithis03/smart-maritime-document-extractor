@@ -60,6 +60,12 @@ export class Extraction {
   @Column({ type: 'enum', enum: ExtractionStatus, default: ExtractionStatus.COMPLETE })
   status: ExtractionStatus;
 
+  @Column({ type: 'boolean', default: false })
+  isRetryable: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  errorMessage: string;
+
   @Column({ type: 'int', nullable: true })
   processingTimeMs: number;
 
