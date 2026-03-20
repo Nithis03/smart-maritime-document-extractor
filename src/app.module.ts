@@ -5,6 +5,8 @@ import { AppController } from './app.controller';
 import { SessionModule } from './modules/session/session.module';
 import { ExtractModule } from './modules/extract/extract.module';
 import { LlmModule } from './llm/llm.module';
+import { JobModule } from './modules/job/job.module';
+import { ValidationModule } from './modules/validation/validation.module';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { LlmModule } from './llm/llm.module';
     SessionModule,
     ExtractModule,
     LlmModule,
+    JobModule,
+    ValidationModule,
   ],
   controllers: [AppController],
   providers: [],

@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Extraction, ExtractionStatus } from './entities/extraction.entity';
@@ -19,12 +19,26 @@ export class ExtractService {
     private readonly sessionService: SessionService,
     @Inject(LLM_PROVIDER)
     private readonly llmProvider: LLMProvider,
-  ) {}
+  ) { }
+
+  private getConfidenceScore(conf: unknown): number {
+    if (typeof conf !== 'string') return 0;
+    const upper = conf.toUpperCase();
+    if (upper === 'HIGH') return 3;
+    if (upper === 'MEDIUM') return 2;
+    if (upper === 'LOW') return 1;
+    return 0;
+  }
+
+  private getDetectionConfidence(data: Record<string, unknown>): unknown {
+    if (!data || typeof data !== 'object') return null;
+    if (!data.detection || typeof data.detection !== 'object') return null;
+    return (data.detection as Record<string, unknown>).confidence;
+  }
 
   async extractDocument(file: Express.Multer.File, sessionId?: string): Promise<Extraction> {
     const startTime = Date.now();
 
-    // 1. Resolve Session
     let session;
     if (sessionId) {
       session = await this.sessionService.findSessionById(sessionId);
@@ -36,15 +50,9 @@ export class ExtractService {
       this.logger.log(`Created new session: ${session.id}`);
     }
 
-    // 2. Hash File
     const fileHash = generateSha256Hash(file.buffer);
-
-    // 3. Check for duplicates
     const existingExtraction = await this.extractionRepository.findOne({
-      where: {
-        sessionId: session.id,
-        fileHash: fileHash,
-      },
+      where: { sessionId: session.id, fileHash: fileHash },
     });
 
     if (existingExtraction) {
@@ -52,149 +60,113 @@ export class ExtractService {
       return existingExtraction;
     }
 
-    // 4. Transform file & Call LLM
     const base64File = file.buffer.toString('base64');
-    
-    let rawLlmResponse: string;
-    try {
-      rawLlmResponse = await this.llmProvider.extractDocument(base64File, file.mimetype);
-    } catch (error) {
-      const isTimeout = error instanceof TimeoutException || error?.name === 'TimeoutException';
-      const errMsg = error instanceof Error ? error.message : String(error);
-      this.logger.error(`LLM Extraction failed: ${errMsg}`);
-      
-      const failedExtraction = this.extractionRepository.create({
-        sessionId: session.id,
-        fileName: file.originalname,
-        fileHash: fileHash,
-        status: ExtractionStatus.FAILED,
-        isRetryable: isTimeout,
-        errorMessage: errMsg,
-        processingTimeMs: Date.now() - startTime,
-      });
-
-      return this.extractionRepository.save(failedExtraction);
-    }
-
-    // 4.5 Parse unstructured LLM Text with Repair Logic
+    let rawLlmResponse: string | null = null;
     let parsedData: Record<string, unknown> | null = null;
-    let finalRawResponse = rawLlmResponse;
+    let extractionStatus = ExtractionStatus.COMPLETE;
+    let errorCode: string | null = null;
+    let errorMessage: string | null = null;
+    let isRetryable = false;
 
     try {
-      const jsonString = extractJsonFromText(rawLlmResponse);
-      const parsed = JSON.parse(jsonString);
-      if (typeof parsed === 'object' && parsed !== null) {
-        parsedData = parsed;
-      } else {
-        throw new Error('Parsed response is not a valid JSON object');
-      }
-    } catch (error) {
-      this.logger.warn(`Initial parse failed: ${error instanceof Error ? error.message : String(error)}. Attempting repair...`);
-      
       try {
-        finalRawResponse = await this.llmProvider.repairDocumentJSON(rawLlmResponse);
-        const jsonString = extractJsonFromText(finalRawResponse);
+        rawLlmResponse = await this.llmProvider.extractDocument(base64File, file.mimetype);
+      } catch (err) {
+        errorCode = err instanceof TimeoutException || err?.name === 'TimeoutException' ? 'TIMEOUT' : 'LLM_API_ERROR';
+        throw err;
+      }
+
+      try {
+        const jsonString = extractJsonFromText(rawLlmResponse);
         const parsed = JSON.parse(jsonString);
-        if (typeof parsed === 'object' && parsed !== null) {
-          parsedData = parsed;
+        if (typeof parsed !== 'object' || parsed === null) throw new Error('Parsed response is not a valid JSON object');
+        parsedData = parsed as Record<string, unknown>;
+      } catch (err) {
+        this.logger.warn(`Initial parse failed: ${err instanceof Error ? err.message : String(err)}. Attempting repair...`);
+        try {
+          rawLlmResponse = await this.llmProvider.repairDocumentJSON(rawLlmResponse);
+          const repairedJsonString = extractJsonFromText(rawLlmResponse);
+          const repairedParsed = JSON.parse(repairedJsonString);
+          if (typeof repairedParsed !== 'object' || repairedParsed === null) throw new Error('Repaired JSON is still not a valid object');
+          parsedData = repairedParsed as Record<string, unknown>;
           this.logger.log(`Repair call successfully recovered a valid JSON object.`);
-        } else {
-          throw new Error('Repaired JSON is still not a valid object');
+        } catch (repairErr) {
+          errorCode = repairErr instanceof TimeoutException || repairErr?.name === 'TimeoutException' ? 'TIMEOUT' : 'LLM_JSON_PARSE_FAIL';
+          throw repairErr;
         }
-      } catch (repairError) {
-        const isTimeout = repairError instanceof TimeoutException || repairError?.name === 'TimeoutException';
-        const errMsg = repairError instanceof Error ? repairError.message : String(repairError);
-        this.logger.error(`Repair failed: ${errMsg}`);
-        
-        // Mark extraction as FAILED, Store raw response
-        const failedExtraction = this.extractionRepository.create({
-          sessionId: session.id,
-          fileName: file.originalname,
-          fileHash: fileHash,
-          status: ExtractionStatus.FAILED,
-          isRetryable: isTimeout,
-          errorMessage: errMsg,
-          rawLlmResponse: finalRawResponse,
-          processingTimeMs: Date.now() - startTime,
-        });
-        
-        return this.extractionRepository.save(failedExtraction);
       }
-    }
 
-    if (!parsedData) {
-      parsedData = {};
-    }
+      const currentConfidence = this.getDetectionConfidence(parsedData);
+      if (typeof currentConfidence === 'string' && currentConfidence.toUpperCase() === 'LOW') {
+        this.logger.log(`Extraction returned LOW confidence. Initiating 1x retry flow with extra context...`);
+        const retryContext = `File name: ${file.originalname}\nMIME type: ${file.mimetype}\nPlease carefully re-evaluate the fields, as the previous extraction yielded LOW confidence.`;
 
-    // 4.6 Automatic Retry for LOW Confidence
-    const getConfidenceScore = (conf: unknown): number => {
-      if (typeof conf !== 'string') return 0;
-      const upper = conf.toUpperCase();
-      if (upper === 'HIGH') return 3;
-      if (upper === 'MEDIUM') return 2;
-      if (upper === 'LOW') return 1;
-      return 0;
-    };
+        try {
+          const retryRawResponse = await this.llmProvider.extractDocument(base64File, file.mimetype, retryContext);
+          const retryJsonString = extractJsonFromText(retryRawResponse);
+          const retryParsed = JSON.parse(retryJsonString);
 
-    const getDetectionConfidence = (data: Record<string, unknown>): unknown => {
-      if (!data || typeof data !== 'object') return null;
-      if (!data.detection || typeof data.detection !== 'object') return null;
-      return (data.detection as Record<string, unknown>).confidence;
-    };
+          if (typeof retryParsed === 'object' && retryParsed !== null) {
+            const retryConfidence = this.getDetectionConfidence(retryParsed as Record<string, unknown>);
+            const originalScore = this.getConfidenceScore(currentConfidence);
+            const retryScore = this.getConfidenceScore(retryConfidence);
 
-    let currentConfidence = getDetectionConfidence(parsedData);
-
-    if (typeof currentConfidence === 'string' && currentConfidence.toUpperCase() === 'LOW') {
-      this.logger.log(`Extraction returned LOW confidence. Initiating 1x retry flow with extra context...`);
-      
-      const retryContext = `File name: ${file.originalname}\nMIME type: ${file.mimetype}\nPlease carefully re-evaluate the fields, as the previous extraction yielded LOW confidence.`;
-
-      try {
-        const retryRawResponse = await this.llmProvider.extractDocument(base64File, file.mimetype, retryContext);
-        const retryJsonString = extractJsonFromText(retryRawResponse);
-        const retryParsed = JSON.parse(retryJsonString);
-        
-        if (typeof retryParsed === 'object' && retryParsed !== null) {
-          const retryConfidence = getDetectionConfidence(retryParsed as Record<string, unknown>);
-          const originalScore = getConfidenceScore(currentConfidence);
-          const retryScore = getConfidenceScore(retryConfidence);
-
-          if (retryScore > originalScore) {
-            this.logger.log(`Retry succeeded with higher confidence: ${retryConfidence}. Swapping result.`);
-            parsedData = retryParsed as Record<string, unknown>;
-            finalRawResponse = retryRawResponse;
-            currentConfidence = retryConfidence;
-          } else {
-            this.logger.log(`Retry yielded confidence '${retryConfidence}' which is not higher than original. Keeping original.`);
+            if (retryScore > originalScore) {
+              this.logger.log(`Retry succeeded with higher confidence: ${retryConfidence}. Swapping result.`);
+              parsedData = retryParsed as Record<string, unknown>;
+              rawLlmResponse = retryRawResponse;
+            } else {
+              this.logger.log(`Retry yielded confidence '${retryConfidence}' which is not higher. Keeping original.`);
+            }
           }
+        } catch (retryError) {
+          this.logger.warn(`LOW confidence retry failed. Falling back to original result: ${retryError instanceof Error ? retryError.message : String(retryError)}`);
         }
-      } catch (retryError) {
-        this.logger.warn(`LOW confidence retry failed. Falling back to original result: ${retryError instanceof Error ? retryError.message : String(retryError)}`);
       }
+
+    } catch (globalError) {
+      extractionStatus = ExtractionStatus.FAILED;
+      errorMessage = globalError instanceof Error ? globalError.message : String(globalError);
+      isRetryable = errorCode === 'TIMEOUT' || errorCode === 'LLM_JSON_PARSE_FAIL' || errorCode === 'LLM_API_ERROR';
+      if (!errorCode) errorCode = 'INTERNAL_ERROR';
+      this.logger.error(`Extraction flow failed: [${errorCode}] ${errorMessage}`);
     }
 
-    // 5. Save Successful Extraction
     const extraction = this.extractionRepository.create({
       sessionId: session.id,
       fileName: file.originalname,
       fileHash: fileHash,
-      documentType: typeof parsedData.documentType === 'string' ? parsedData.documentType : null,
-      applicableRole: typeof parsedData.applicableRole === 'string' ? parsedData.applicableRole : null,
-      confidence: typeof parsedData.confidence === 'number' ? parsedData.confidence : null,
-      holderName: typeof parsedData.holderName === 'string' ? parsedData.holderName : null,
-      passportNumber: typeof parsedData.passportNumber === 'string' ? parsedData.passportNumber : null,
-      sirbNumber: typeof parsedData.sirbNumber === 'string' ? parsedData.sirbNumber : null,
-      fieldsJson: parsedData.fieldsJson && typeof parsedData.fieldsJson === 'object' ? (parsedData.fieldsJson as Record<string, unknown>) : null,
-      validityJson: parsedData.validityJson && typeof parsedData.validityJson === 'object' ? (parsedData.validityJson as Record<string, unknown>) : null,
-      medicalDataJson: parsedData.medicalDataJson && typeof parsedData.medicalDataJson === 'object' ? (parsedData.medicalDataJson as Record<string, unknown>) : null,
-      flagsJson: parsedData.flagsJson && typeof parsedData.flagsJson === 'object' ? (parsedData.flagsJson as Record<string, unknown>) : null,
-      rawLlmResponse: finalRawResponse,
-      status: ExtractionStatus.COMPLETE,
+
+      documentType: typeof (parsedData?.detection as any)?.documentType === 'string' ? (parsedData?.detection as any).documentType : null,
+      applicableRole: typeof (parsedData?.detection as any)?.applicableRole === 'string' ? (parsedData?.detection as any).applicableRole : null,
+      confidence: typeof (parsedData?.detection as any)?.confidence === 'string'
+        ? ((parsedData?.detection as any).confidence === 'HIGH' ? 99.0 : (parsedData?.detection as any).confidence === 'MEDIUM' ? 75.0 : 40.0)
+        : null,
+      holderName: typeof (parsedData?.holder as any)?.fullName === 'string' ? (parsedData?.holder as any).fullName : null,
+      passportNumber: typeof (parsedData?.holder as any)?.passportNumber === 'string' ? (parsedData?.holder as any).passportNumber : null,
+      sirbNumber: typeof (parsedData?.holder as any)?.sirbNumber === 'string' ? (parsedData?.holder as any).sirbNumber : null,
+
+      fieldsJson: parsedData?.fields ? (parsedData.fields as any) : null,
+      validityJson: parsedData?.validity && typeof parsedData.validity === 'object' ? (parsedData.validity as Record<string, unknown>) : null,
+      medicalDataJson: parsedData?.medicalData && typeof parsedData.medicalData === 'object' ? (parsedData.medicalData as Record<string, unknown>) : null,
+      flagsJson: parsedData?.flags ? (parsedData.flags as any) : null,
+
+      rawLlmResponse: rawLlmResponse || '', // Store raw safely as empty string if it fails inherently before fetch completes
+      status: extractionStatus,
+      errorCode: errorCode || null,
+      errorMessage: errorMessage || null,
+      isRetryable: isRetryable,
       processingTimeMs: Date.now() - startTime,
     });
 
     const savedExtraction = await this.extractionRepository.save(extraction);
-    this.logger.log(`Successfully completed extraction for session: ${session.id}, file: ${file.originalname}`);
+
+    if (extractionStatus === ExtractionStatus.COMPLETE) {
+      this.logger.log(`Successfully completed extraction for session: ${session.id}, file: ${file.originalname}`);
+    } else {
+      this.logger.warn(`Saved FAILED extraction record for session: ${session.id}, file: ${file.originalname}`);
+    }
+
     return savedExtraction;
   }
 }
