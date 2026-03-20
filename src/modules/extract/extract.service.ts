@@ -72,16 +72,46 @@ export class ExtractService {
       return this.extractionRepository.save(failedExtraction);
     }
 
-    // 4.5 Parse unstructured LLM Text
-    let parsedData: Record<string, unknown> = {};
+    // 4.5 Parse unstructured LLM Text with Repair Logic
+    let parsedData: Record<string, unknown> | null = null;
+    let finalRawResponse = rawLlmResponse;
+
     try {
       const jsonString = extractJsonFromText(rawLlmResponse);
       const parsed = JSON.parse(jsonString);
       if (typeof parsed === 'object' && parsed !== null) {
         parsedData = parsed;
+      } else {
+        throw new Error('Parsed response is not a valid JSON object');
       }
     } catch (error) {
-      this.logger.warn(`Failed to extract or parse JSON from LLM response: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn(`Initial parse failed: ${error instanceof Error ? error.message : String(error)}. Attempting repair...`);
+      
+      try {
+        finalRawResponse = await this.llmProvider.repairDocumentJSON(rawLlmResponse);
+        const jsonString = extractJsonFromText(finalRawResponse);
+        const parsed = JSON.parse(jsonString);
+        if (typeof parsed === 'object' && parsed !== null) {
+          parsedData = parsed;
+          this.logger.log(`Repair call successfully recovered a valid JSON object.`);
+        } else {
+          throw new Error('Repaired JSON is still not a valid object');
+        }
+      } catch (repairError) {
+        this.logger.error(`Repair failed: ${repairError instanceof Error ? repairError.message : String(repairError)}`);
+        
+        // Mark extraction as FAILED, Store raw response
+        const failedExtraction = this.extractionRepository.create({
+          sessionId: session.id,
+          fileName: file.originalname,
+          fileHash: fileHash,
+          status: ExtractionStatus.FAILED,
+          rawLlmResponse: finalRawResponse,
+          processingTimeMs: Date.now() - startTime,
+        });
+        
+        return this.extractionRepository.save(failedExtraction);
+      }
     }
 
     // 5. Save Successful Extraction
@@ -99,7 +129,7 @@ export class ExtractService {
       validityJson: parsedData.validityJson && typeof parsedData.validityJson === 'object' ? (parsedData.validityJson as Record<string, unknown>) : null,
       medicalDataJson: parsedData.medicalDataJson && typeof parsedData.medicalDataJson === 'object' ? (parsedData.medicalDataJson as Record<string, unknown>) : null,
       flagsJson: parsedData.flagsJson && typeof parsedData.flagsJson === 'object' ? (parsedData.flagsJson as Record<string, unknown>) : null,
-      rawLlmResponse: rawLlmResponse,
+      rawLlmResponse: finalRawResponse,
       status: ExtractionStatus.COMPLETE,
       processingTimeMs: Date.now() - startTime,
     });
