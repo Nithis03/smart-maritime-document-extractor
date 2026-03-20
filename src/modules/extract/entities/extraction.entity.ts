@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, OneToMany, JoinColumn, Index, Unique } from 'typeorm';
 import { Session } from '../../session/entities/session.entity';
+import { Validation } from '../../validation/entities/validation.entity';
 
 export enum ExtractionStatus {
   COMPLETE = 'COMPLETE',
@@ -7,6 +8,9 @@ export enum ExtractionStatus {
 }
 
 @Entity('extractions')
+@Unique('UQ_SESSION_FILEHASH', ['sessionId', 'fileHash'])
+@Index('IDX_SESSION_ID', ['sessionId'])
+@Index('IDX_FILE_HASH', ['fileHash'])
 export class Extraction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -60,6 +64,9 @@ export class Extraction {
   @Column({ type: 'enum', enum: ExtractionStatus, default: ExtractionStatus.COMPLETE })
   status: ExtractionStatus;
 
+  @Column({ type: 'varchar', nullable: true })
+  errorCode: string;
+
   @Column({ type: 'boolean', default: false })
   isRetryable: boolean;
 
@@ -71,4 +78,7 @@ export class Extraction {
 
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
+
+  @OneToMany(() => Validation, (validation: Validation) => validation.extraction)
+  validations: Validation[];
 }

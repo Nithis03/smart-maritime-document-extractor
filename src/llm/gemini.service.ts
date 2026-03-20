@@ -7,15 +7,15 @@ import { withTimeout } from '../common/utils/timeout.util';
 export class GeminiService implements LLMProvider {
   private readonly logger = new Logger(GeminiService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) { }
 
   async extractDocument(base64: string, mimeType: string, context?: string): Promise<string> {
     let prompt = `Extract the structured information from this maritime document. Return ONLY valid JSON matching the required schema.`;
-    
+
     if (context) {
       prompt += `\n\nAdditional Context:\n${context}`;
     }
-    
+
     const payload = {
       contents: [
         {
@@ -38,7 +38,7 @@ export class GeminiService implements LLMProvider {
 
   async repairDocumentJSON(rawResponse: string): Promise<string> {
     const prompt = `The following response is invalid JSON. Fix it and return ONLY valid JSON:\n\n${rawResponse}`;
-    
+
     const payload = {
       contents: [
         {
@@ -71,7 +71,7 @@ export class GeminiService implements LLMProvider {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-      signal: controller.signal as any, // Node fetch built-in signal mapping
+      signal: controller.signal as any,
     });
 
     const response = await withTimeout(fetchPromise, 30000, controller);
@@ -82,7 +82,7 @@ export class GeminiService implements LLMProvider {
     }
 
     const json = await response.json();
-    
+
     const candidates = json.candidates;
     if (!candidates || candidates.length === 0) {
       throw new Error('Gemini API returned no candidates in the response payload.');
