@@ -1,55 +1,68 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { IGeminiService, ExtractionResult } from './gemini.interface';
+import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { LLMProvider } from './llm-provider.interface';
 
 @Injectable()
-export class GeminiService implements IGeminiService {
+export class GeminiService implements LLMProvider {
   private readonly logger = new Logger(GeminiService.name);
 
-  async extractDocumentData(base64File: string, mimeType: string): Promise<ExtractionResult> {
-    this.logger.log(`Mocking LLM call for document parsing. MimeType: ${mimeType}, Size: ${base64File.length} chars (base64)`);
+  constructor(private readonly configService: ConfigService) {}
+
+  async extractDocument(base64: string, mimeType: string): Promise<string> {
+    const apiKey = this.configService.get<string>('LLM_API_KEY');
+    const model = this.configService.get<string>('LLM_MODEL', 'gemini-1.5-flash');
+
+    if (!apiKey) {
+      throw new InternalServerErrorException('LLM_API_KEY is not configured in the environment.');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const prompt = `Extract the structured information from this maritime document. Return ONLY valid JSON matching the required schema.`;
+
+    const payload = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType,
+                data: base64,
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    this.logger.log(`Calling Gemini API (Model: ${model}, MimeType: ${mimeType})`);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API returned status ${response.status}: ${errorText}`);
+    }
+
+    const json = await response.json();
     
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const candidates = json.candidates;
+    if (!candidates || candidates.length === 0) {
+      throw new Error('Gemini API returned no candidates in the response payload.');
+    }
 
-    // Simulated structured LLM response matching our schema
-    const mockStructuredData = {
-      documentType: 'PASSPORT',
-      applicableRole: 'DECK_OFFICER',
-      confidence: 98.5,
-      holderName: 'JOHN DOE',
-      passportNumber: 'A12345678',
-      sirbNumber: 'S-987654321',
-      fieldsJson: {
-        nationality: 'US',
-        dateOfBirth: '1990-01-01',
-        gender: 'M',
-        placeOfBirth: 'NEW YORK',
-      },
-      validityJson: {
-        issueDate: '2020-01-01',
-        expiryDate: '2030-01-01',
-      },
-      medicalDataJson: null as Record<string, unknown> | null,
-      flagsJson: {
-        hasMissingSignatures: false,
-        isExpired: false,
-      },
-    };
+    const content = candidates[0].content;
+    if (!content || !content.parts || content.parts.length === 0) {
+      throw new Error('Gemini API returned empty content.parts in the response payload.');
+    }
 
-    const rawLlmResponse = JSON.stringify(mockStructuredData, null, 2);
-
-    return {
-      documentType: mockStructuredData.documentType,
-      applicableRole: mockStructuredData.applicableRole,
-      confidence: mockStructuredData.confidence,
-      holderName: mockStructuredData.holderName,
-      passportNumber: mockStructuredData.passportNumber,
-      sirbNumber: mockStructuredData.sirbNumber,
-      fieldsJson: mockStructuredData.fieldsJson,
-      validityJson: mockStructuredData.validityJson,
-      medicalDataJson: mockStructuredData.medicalDataJson,
-      flagsJson: mockStructuredData.flagsJson,
-      rawLlmResponse,
-    };
+    return String(content.parts[0].text);
   }
 }

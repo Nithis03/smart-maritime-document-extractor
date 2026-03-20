@@ -1,10 +1,12 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Extraction, ExtractionStatus } from './entities/extraction.entity';
 import { SessionService } from '../session/session.service';
-import { GeminiService } from '../../llm/gemini.service';
+import { LLMProvider } from '../../llm/llm-provider.interface';
+import { LLM_PROVIDER } from '../../llm/llm.module';
 import { generateSha256Hash } from '../../common/utils/hash.util';
+import { extractJsonFromText } from '../../common/utils/json-extractor.util';
 
 @Injectable()
 export class ExtractService {
@@ -14,7 +16,8 @@ export class ExtractService {
     @InjectRepository(Extraction)
     private readonly extractionRepository: Repository<Extraction>,
     private readonly sessionService: SessionService,
-    private readonly geminiService: GeminiService,
+    @Inject(LLM_PROVIDER)
+    private readonly llmProvider: LLMProvider,
   ) {}
 
   async extractDocument(file: Express.Multer.File, sessionId?: string): Promise<Extraction> {
@@ -51,11 +54,12 @@ export class ExtractService {
     // 4. Transform file & Call LLM
     const base64File = file.buffer.toString('base64');
     
-    let llmResult;
+    let rawLlmResponse: string;
     try {
-      llmResult = await this.geminiService.extractDocumentData(base64File, file.mimetype);
+      rawLlmResponse = await this.llmProvider.extractDocument(base64File, file.mimetype);
     } catch (error) {
-      this.logger.error(`LLM Extraction failed: ${error.message}`, error.stack);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`LLM Extraction failed: ${errMsg}`);
       
       const failedExtraction = this.extractionRepository.create({
         sessionId: session.id,
@@ -68,22 +72,25 @@ export class ExtractService {
       return this.extractionRepository.save(failedExtraction);
     }
 
+    // 4.5 Parse unstructured LLM Text
+    const parsedData = extractJsonFromText(rawLlmResponse) || {};
+
     // 5. Save Successful Extraction
     const extraction = this.extractionRepository.create({
       sessionId: session.id,
       fileName: file.originalname,
       fileHash: fileHash,
-      documentType: llmResult.documentType,
-      applicableRole: llmResult.applicableRole,
-      confidence: llmResult.confidence,
-      holderName: llmResult.holderName,
-      passportNumber: llmResult.passportNumber,
-      sirbNumber: llmResult.sirbNumber,
-      fieldsJson: llmResult.fieldsJson,
-      validityJson: llmResult.validityJson,
-      medicalDataJson: llmResult.medicalDataJson,
-      flagsJson: llmResult.flagsJson,
-      rawLlmResponse: llmResult.rawLlmResponse,
+      documentType: typeof parsedData.documentType === 'string' ? parsedData.documentType : null,
+      applicableRole: typeof parsedData.applicableRole === 'string' ? parsedData.applicableRole : null,
+      confidence: typeof parsedData.confidence === 'number' ? parsedData.confidence : null,
+      holderName: typeof parsedData.holderName === 'string' ? parsedData.holderName : null,
+      passportNumber: typeof parsedData.passportNumber === 'string' ? parsedData.passportNumber : null,
+      sirbNumber: typeof parsedData.sirbNumber === 'string' ? parsedData.sirbNumber : null,
+      fieldsJson: parsedData.fieldsJson && typeof parsedData.fieldsJson === 'object' ? (parsedData.fieldsJson as Record<string, unknown>) : null,
+      validityJson: parsedData.validityJson && typeof parsedData.validityJson === 'object' ? (parsedData.validityJson as Record<string, unknown>) : null,
+      medicalDataJson: parsedData.medicalDataJson && typeof parsedData.medicalDataJson === 'object' ? (parsedData.medicalDataJson as Record<string, unknown>) : null,
+      flagsJson: parsedData.flagsJson && typeof parsedData.flagsJson === 'object' ? (parsedData.flagsJson as Record<string, unknown>) : null,
+      rawLlmResponse: rawLlmResponse,
       status: ExtractionStatus.COMPLETE,
       processingTimeMs: Date.now() - startTime,
     });
