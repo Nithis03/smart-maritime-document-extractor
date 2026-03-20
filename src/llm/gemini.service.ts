@@ -9,8 +9,12 @@ export class GeminiService implements LLMProvider {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async extractDocument(base64: string, mimeType: string): Promise<string> {
-    const prompt = `Extract the structured information from this maritime document. Return ONLY valid JSON matching the required schema.`;
+  async extractDocument(base64: string, mimeType: string, context?: string): Promise<string> {
+    let prompt = `Extract the structured information from this maritime document. Return ONLY valid JSON matching the required schema.`;
+    
+    if (context) {
+      prompt += `\n\nAdditional Context:\n${context}`;
+    }
     
     const payload = {
       contents: [

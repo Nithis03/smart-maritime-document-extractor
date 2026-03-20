@@ -122,6 +122,57 @@ export class ExtractService {
       }
     }
 
+    if (!parsedData) {
+      parsedData = {};
+    }
+
+    // 4.6 Automatic Retry for LOW Confidence
+    const getConfidenceScore = (conf: unknown): number => {
+      if (typeof conf !== 'string') return 0;
+      const upper = conf.toUpperCase();
+      if (upper === 'HIGH') return 3;
+      if (upper === 'MEDIUM') return 2;
+      if (upper === 'LOW') return 1;
+      return 0;
+    };
+
+    const getDetectionConfidence = (data: Record<string, unknown>): unknown => {
+      if (!data || typeof data !== 'object') return null;
+      if (!data.detection || typeof data.detection !== 'object') return null;
+      return (data.detection as Record<string, unknown>).confidence;
+    };
+
+    let currentConfidence = getDetectionConfidence(parsedData);
+
+    if (typeof currentConfidence === 'string' && currentConfidence.toUpperCase() === 'LOW') {
+      this.logger.log(`Extraction returned LOW confidence. Initiating 1x retry flow with extra context...`);
+      
+      const retryContext = `File name: ${file.originalname}\nMIME type: ${file.mimetype}\nPlease carefully re-evaluate the fields, as the previous extraction yielded LOW confidence.`;
+
+      try {
+        const retryRawResponse = await this.llmProvider.extractDocument(base64File, file.mimetype, retryContext);
+        const retryJsonString = extractJsonFromText(retryRawResponse);
+        const retryParsed = JSON.parse(retryJsonString);
+        
+        if (typeof retryParsed === 'object' && retryParsed !== null) {
+          const retryConfidence = getDetectionConfidence(retryParsed as Record<string, unknown>);
+          const originalScore = getConfidenceScore(currentConfidence);
+          const retryScore = getConfidenceScore(retryConfidence);
+
+          if (retryScore > originalScore) {
+            this.logger.log(`Retry succeeded with higher confidence: ${retryConfidence}. Swapping result.`);
+            parsedData = retryParsed as Record<string, unknown>;
+            finalRawResponse = retryRawResponse;
+            currentConfidence = retryConfidence;
+          } else {
+            this.logger.log(`Retry yielded confidence '${retryConfidence}' which is not higher than original. Keeping original.`);
+          }
+        }
+      } catch (retryError) {
+        this.logger.warn(`LOW confidence retry failed. Falling back to original result: ${retryError instanceof Error ? retryError.message : String(retryError)}`);
+      }
+    }
+
     // 5. Save Successful Extraction
     const extraction = this.extractionRepository.create({
       sessionId: session.id,
