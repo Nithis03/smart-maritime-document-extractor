@@ -73,7 +73,16 @@ export class ExtractService {
     }
 
     // 4.5 Parse unstructured LLM Text
-    const parsedData = extractJsonFromText(rawLlmResponse) || {};
+    let parsedData: Record<string, unknown> = {};
+    try {
+      const jsonString = extractJsonFromText(rawLlmResponse);
+      const parsed = JSON.parse(jsonString);
+      if (typeof parsed === 'object' && parsed !== null) {
+        parsedData = parsed;
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to extract or parse JSON from LLM response: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     // 5. Save Successful Extraction
     const extraction = this.extractionRepository.create({

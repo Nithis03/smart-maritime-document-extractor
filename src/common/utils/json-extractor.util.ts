@@ -1,36 +1,23 @@
+import { BadRequestException } from '@nestjs/common';
+
 /**
- * Safely extracts a JSON string from a larger block of text.
- * Especially useful when dealing with LLM responses that might include markdown like ```json ... ```
+ * Safely extracts a JSON string from a larger block of text by locating the first
+ * and last curly braces. Throws an error if no valid boundaries are found.
  * 
  * @param text The raw response text
- * @returns The parsed JSON object or null if parsing fails
+ * @returns The extracted JSON string
  */
-export function extractJsonFromText(text: string): Record<string, unknown> | null {
-  try {
-    // Basic clean to remove markdown formatting if present
-    let cleaned = text.trim();
-    if (cleaned.startsWith('```json')) {
-      cleaned = cleaned.replace(/^```json/, '');
-    } else if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```/, '');
-    }
-    
-    if (cleaned.endsWith('```')) {
-      cleaned = cleaned.replace(/```$/, '');
-    }
-
-    return JSON.parse(cleaned.trim());
-  } catch (error) {
-    // If straightforward parsing fails, try to find a JSON block via regex
-    try {
-      const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-      if (match) {
-        return JSON.parse(match[0]);
-      }
-    } catch {
-      // Continue to return null below
-    }
+export function extractJsonFromText(text: string): string {
+  if (!text) {
+    throw new BadRequestException('Empty response provided for JSON extraction.');
   }
 
-  return null;
+  const firstBraceIndex = text.indexOf('{');
+  const lastBraceIndex = text.lastIndexOf('}');
+
+  if (firstBraceIndex === -1 || lastBraceIndex === -1 || firstBraceIndex > lastBraceIndex) {
+    throw new BadRequestException('Could not locate valid JSON boundaries in the response.');
+  }
+
+  return text.substring(firstBraceIndex, lastBraceIndex + 1);
 }
