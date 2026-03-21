@@ -79,6 +79,15 @@ export interface SessionSummary {
   pendingJobs: string[];
 }
 
+export interface ExpiringAlertResult {
+  id: string;
+  fileName: string;
+  documentType: string | null;
+  holderName: string | null;
+  isExpired: boolean;
+  daysUntilExpiry: number | null;
+}
+
 interface FlagItem {
   severity?: string;
 }
@@ -162,6 +171,34 @@ export class ValidationService {
       documents,
       pendingJobs,
     };
+  }
+
+  async getExpiringDocuments(sessionId: string, withinDays: number): Promise<ExpiringAlertResult[]> {
+    const sessionExists = await this.sessionService.findSessionByIdWithExtractions(sessionId);
+    if (!sessionExists) throw new BadRequestException('SESSION_NOT_FOUND');
+
+    const expiring = await this.extractionRepository
+      .createQueryBuilder('ex')
+      .where('ex.session_id = :sessionId', { sessionId })
+      .andWhere('ex.status = :status', { status: 'COMPLETE' })
+      .andWhere(
+        `((ex."validityJson"->>'isExpired')::boolean = true OR (ex."validityJson"->>'daysUntilExpiry')::int <= :withinDays)`,
+        { withinDays }
+      )
+      .orderBy(`(ex."validityJson"->>'daysUntilExpiry')::int`, 'ASC', 'NULLS LAST')
+      .getMany();
+
+    return expiring.map(ex => {
+      const validity = (ex.validityJson || {}) as ValidityData;
+      return {
+        id: ex.id,
+        fileName: ex.fileName,
+        documentType: ex.documentType,
+        holderName: ex.holderName,
+        isExpired: validity.isExpired === true,
+        daysUntilExpiry: validity.daysUntilExpiry ?? null,
+      };
+    });
   }
 
   async validateSessionData(sessionId: string): Promise<ValidationResult> {

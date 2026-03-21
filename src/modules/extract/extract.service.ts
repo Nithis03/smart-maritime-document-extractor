@@ -56,8 +56,13 @@ export class ExtractService {
     });
 
     if (existingExtraction) {
-      this.logger.log(`Returning duplicate extraction for session: ${session.id}, hash: ${fileHash}`);
-      return { extraction: existingExtraction, isDuplicate: true };
+      if (existingExtraction.status === ExtractionStatus.COMPLETE) {
+        this.logger.log(`Returning duplicate COMPLETE extraction for session: ${session.id}, hash: ${fileHash}`);
+        return { extraction: existingExtraction, isDuplicate: true };
+      } else {
+        this.logger.log(`Replacing previously FAILED extraction for session: ${session.id}, hash: ${fileHash} to allow retry.`);
+        await this.extractionRepository.remove(existingExtraction);
+      }
     }
 
     const base64File = file.buffer.toString('base64');

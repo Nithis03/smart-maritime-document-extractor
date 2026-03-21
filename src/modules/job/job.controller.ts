@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Post, Param, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { JobService } from './job.service';
@@ -70,5 +70,46 @@ export class JobController {
         retryAfterMs: null as number | null,
       };
     }
+  }
+
+  @Post(':id/retry')
+  async retryJob(@Param('id') id: string) {
+    const job = await this.jobService.getJob(id);
+    if (job.status !== JobStatus.FAILED) {
+      throw new BadRequestException('Job must be in FAILED status to be retried');
+    }
+
+    const bullJob = await this.extractionQueue.getJob(id);
+    if (!bullJob) {
+      throw new BadRequestException('Original job payload has expired from queue memory');
+    }
+
+    await this.jobService.updateJobStatus(id, JobStatus.QUEUED, {
+      errorCode: null,
+      errorMessage: null,
+      startedAt: null,
+      completedAt: null,
+      extraction: null as any,
+      extractionId: null as any,
+    });
+
+    const state = await bullJob.getState();
+    if (state === 'failed') {
+      await bullJob.retry();
+    } else {
+      const data = bullJob.data;
+      await bullJob.remove();
+      await this.extractionQueue.add('extractDocument', data, { jobId: id });
+    }
+
+    const queuePosition = await this.jobService.getQueuePosition(id, job.createdAt);
+    return {
+      jobId: id,
+      sessionId: job.sessionId,
+      status: 'QUEUED',
+      queuePosition,
+      estimatedWaitMs: queuePosition * 3000,
+      pollUrl: `/api/jobs/${id}`,
+    };
   }
 }
