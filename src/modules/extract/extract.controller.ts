@@ -12,10 +12,10 @@ import {
   Res,
   HttpStatus,
   HttpException,
+  Inject,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { IQueueProvider, QUEUE_PROVIDER } from '../queue/queue.interface';
 import { ExtractService } from './extract.service';
 import { ExtractDocumentDto } from './dto/extract-document.dto';
 import { fileValidationOptions } from './file-upload.constants';
@@ -30,7 +30,7 @@ export class ExtractController {
     private readonly extractService: ExtractService,
     private readonly sessionService: SessionService,
     private readonly jobService: JobService,
-    @InjectQueue('extractionQueue') private readonly extractionQueue: Queue,
+    @Inject(QUEUE_PROVIDER) private readonly queueProvider: IQueueProvider,
   ) {}
 
   @Post()
@@ -68,12 +68,12 @@ export class ExtractController {
         bufferBase64: file.buffer.toString('base64'),
       };
 
-      await this.extractionQueue.add('extractDocument', {
+      await this.queueProvider.addExtractionJob(jobEntity.id, {
         jobId: jobEntity.id,
         sessionId: sessionId,
         fileData,
         webhookUrl: webhookUrl || null,
-      }, { jobId: jobEntity.id });
+      });
 
       res.status(HttpStatus.ACCEPTED);
       return {

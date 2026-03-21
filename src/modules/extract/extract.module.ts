@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BullModule } from '@nestjs/bullmq';
+import { QueueModule } from '../queue/queue.module';
 import { Extraction } from './entities/extraction.entity';
 import { ExtractController } from './extract.controller';
 import { ExtractService } from './extract.service';
@@ -12,9 +12,7 @@ import { ExtractionProcessor } from './extraction.processor';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Extraction]),
-    BullModule.registerQueue({
-      name: 'extractionQueue',
-    }),
+    QueueModule,
     SessionModule,
     LlmModule,
     JobModule,

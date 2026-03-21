@@ -1,6 +1,5 @@
-import { Controller, Get, Post, Param, BadRequestException } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Controller, Get, Post, Param, BadRequestException, Inject } from '@nestjs/common';
+import { IQueueProvider, QUEUE_PROVIDER } from '../queue/queue.interface';
 import { JobService } from './job.service';
 import { JobStatus } from './entities/job.entity';
 import { Extraction } from '../extract/entities/extraction.entity';
@@ -9,7 +8,7 @@ import { Extraction } from '../extract/entities/extraction.entity';
 export class JobController {
   constructor(
     private readonly jobService: JobService,
-    @InjectQueue('extractionQueue') private readonly extractionQueue: Queue,
+    @Inject(QUEUE_PROVIDER) private readonly queueProvider: IQueueProvider,
   ) { }
 
   @Get(':id')
@@ -18,8 +17,8 @@ export class JobController {
     let status = job.status;
 
     if (status === JobStatus.QUEUED || status === JobStatus.PROCESSING) {
-      const bullJob = await this.extractionQueue.getJob(id);
-      if (!bullJob) {
+      const jobExists = await this.queueProvider.jobExists(id);
+      if (!jobExists) {
         await this.jobService.updateJobStatus(id, JobStatus.FAILED, {
           errorCode: 'LOST_IN_QUEUE',
           errorMessage: 'Job was lost natively due to node restart or desync.'
@@ -79,8 +78,8 @@ export class JobController {
       throw new BadRequestException('Job must be in FAILED status to be retried');
     }
 
-    const bullJob = await this.extractionQueue.getJob(id);
-    if (!bullJob) {
+    const jobExists = await this.queueProvider.jobExists(id);
+    if (!jobExists) {
       throw new BadRequestException('Original job payload has expired from queue memory');
     }
 
@@ -93,13 +92,11 @@ export class JobController {
       extractionId: null,
     });
 
-    const state = await bullJob.getState();
+    const state = await this.queueProvider.getJobState(id);
     if (state === 'failed') {
-      await bullJob.retry();
+      await this.queueProvider.retryJob(id);
     } else {
-      const data = bullJob.data;
-      await bullJob.remove();
-      await this.extractionQueue.add('extractDocument', data, { jobId: id });
+      await this.queueProvider.hardRestartJob(id);
     }
 
     const queuePosition = await this.jobService.getQueuePosition(id, job.createdAt);

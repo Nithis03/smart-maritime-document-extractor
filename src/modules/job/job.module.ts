@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BullModule } from '@nestjs/bullmq';
+import { QueueModule } from '../queue/queue.module';
 import { Job } from './entities/job.entity';
 import { JobService } from './job.service';
 import { JobController } from './job.controller';
@@ -8,12 +8,10 @@ import { JobController } from './job.controller';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Job]),
-    BullModule.registerQueue({
-      name: 'extractionQueue',
-    }),
+    QueueModule,
   ],
   controllers: [JobController],
   providers: [JobService],
-  exports: [TypeOrmModule, JobService, BullModule],
+  exports: [TypeOrmModule, JobService, QueueModule],
 })
 export class JobModule {}
