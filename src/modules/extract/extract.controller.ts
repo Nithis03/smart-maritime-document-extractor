@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   UseInterceptors,
+  UseGuards,
   UploadedFile,
   Body,
   BadRequestException,
@@ -21,6 +22,7 @@ import { fileValidationOptions } from '../validation/file-upload.constants';
 import { SessionService } from '../session/session.service';
 import { JobService } from '../job/job.service';
 import { Response } from 'express';
+import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
 @Controller('extract')
 export class ExtractController {
@@ -32,6 +34,7 @@ export class ExtractController {
   ) {}
 
   @Post()
+  @UseGuards(RateLimitGuard)
   @UseInterceptors(FileInterceptor('file', fileValidationOptions))
   async extract(
     @UploadedFile() file: Express.Multer.File,
