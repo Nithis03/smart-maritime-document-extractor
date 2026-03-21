@@ -1,28 +1,22 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { GeminiService } from './gemini.service';
+import { LlmService } from './llm.service';
 
 export const LLM_PROVIDER = 'LLM_PROVIDER';
 
 @Module({
   imports: [ConfigModule],
   providers: [
-    GeminiService,
+    LlmService,
     {
       provide: LLM_PROVIDER,
-      useFactory: (configService: ConfigService, geminiService: GeminiService) => {
-        const providerName = configService.get<string>('LLM_PROVIDER', 'gemini');
-        
-        switch (providerName.toLowerCase()) {
-          case 'gemini':
-            return geminiService;
-          default:
-            throw new Error(`Unsupported LLM_PROVIDER: ${providerName}`);
-        }
+      useFactory: (configService: ConfigService, llmService: LlmService) => {
+        const providerName = configService.get<string>('LLM_PROVIDER', 'generic');
+        return llmService;
       },
-      inject: [ConfigService, GeminiService],
+      inject: [ConfigService, LlmService],
     },
   ],
   exports: [LLM_PROVIDER],
 })
-export class LlmModule {}
+export class LlmModule { }

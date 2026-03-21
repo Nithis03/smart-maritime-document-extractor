@@ -156,11 +156,12 @@ export class ExtractService {
       medicalDataJson: parsedData?.medicalData && typeof parsedData.medicalData === 'object' ? (parsedData.medicalData as Record<string, unknown>) : null,
       flagsJson: parsedData?.flags ? (parsedData.flags as any) : null,
 
-      rawLlmResponse: rawLlmResponse || '', // Store raw safely as empty string if it fails inherently before fetch completes
+      rawLlmResponse: rawLlmResponse || '',
       status: extractionStatus,
       errorCode: errorCode || null,
       errorMessage: errorMessage || null,
       isRetryable: isRetryable,
+      promptVersion: this.llmProvider.getPromptVersion(),
       processingTimeMs: Date.now() - startTime,
     });
 

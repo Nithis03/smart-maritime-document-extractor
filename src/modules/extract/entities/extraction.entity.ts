@@ -72,6 +72,9 @@ export class Extraction {
   @Column({ type: 'text', nullable: true })
   errorMessage: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  promptVersion: string;
+
   @Column({ type: 'int', nullable: true })
   processingTimeMs: number;
 
