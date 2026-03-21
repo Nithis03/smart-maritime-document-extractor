@@ -39,7 +39,7 @@ export class ExtractController {
   async extract(
     @UploadedFile() file: Express.Multer.File,
     @Body() extractDocumentDto: ExtractDocumentDto,
-    @Query('mode', new DefaultValuePipe('sync')) mode: 'sync' | 'async',
+    @Query('mode', new DefaultValuePipe('async')) mode: 'sync' | 'async',
     @Res({ passthrough: true }) res: Response,
   ) {
     if (!file) {
