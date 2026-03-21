@@ -41,6 +41,9 @@ export class Job {
   @Column({ type: 'timestamp', nullable: true })
   startedAt: Date;
 
+  @Column({ type: 'varchar', nullable: true })
+  webhookUrl: string;
+
   @Column({ type: 'timestamp', nullable: true })
   completedAt: Date;
 

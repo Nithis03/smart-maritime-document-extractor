@@ -59,7 +59,8 @@ export class ExtractController {
     }
 
     if (mode === 'async') {
-      const jobEntity = await this.jobService.createJob(sessionId);
+      const webhookUrl = extractDocumentDto?.webhookUrl;
+      const jobEntity = await this.jobService.createJob(sessionId, webhookUrl);
       
       const fileData = {
         originalname: file.originalname,
@@ -71,9 +72,10 @@ export class ExtractController {
         jobId: jobEntity.id,
         sessionId: sessionId,
         fileData,
+        webhookUrl: webhookUrl || null,
       }, { jobId: jobEntity.id });
 
-      res.status(HttpStatus.ACCEPTED); // Explicit HTTP 202
+      res.status(HttpStatus.ACCEPTED);
       return {
         jobId: jobEntity.id,
         sessionId: sessionId,

@@ -10,8 +10,12 @@ export class JobService {
     private readonly jobRepository: Repository<Job>,
   ) { }
 
-  async createJob(sessionId: string): Promise<Job> {
-    const job = this.jobRepository.create({ sessionId, status: JobStatus.QUEUED });
+  async createJob(sessionId: string, webhookUrl?: string): Promise<Job> {
+    const job = this.jobRepository.create({
+      sessionId,
+      status: JobStatus.QUEUED,
+      webhookUrl: webhookUrl || null,
+    });
     return this.jobRepository.save(job);
   }
 
