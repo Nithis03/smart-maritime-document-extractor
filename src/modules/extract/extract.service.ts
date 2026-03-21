@@ -36,7 +36,7 @@ export class ExtractService {
     return (data.detection as Record<string, unknown>).confidence;
   }
 
-  async extractDocument(file: Express.Multer.File, sessionId?: string): Promise<Extraction> {
+  async extractDocument(file: Express.Multer.File, sessionId?: string): Promise<{ extraction: Extraction; isDuplicate: boolean }> {
     const startTime = Date.now();
 
     let session;
@@ -57,7 +57,7 @@ export class ExtractService {
 
     if (existingExtraction) {
       this.logger.log(`Returning duplicate extraction for session: ${session.id}, hash: ${fileHash}`);
-      return existingExtraction;
+      return { extraction: existingExtraction, isDuplicate: true };
     }
 
     const base64File = file.buffer.toString('base64');
@@ -140,7 +140,7 @@ export class ExtractService {
       documentType: typeof (parsedData?.detection as any)?.documentType === 'string' ? (parsedData?.detection as any).documentType : null,
       applicableRole: typeof (parsedData?.detection as any)?.applicableRole === 'string' ? (parsedData?.detection as any).applicableRole : null,
       confidence: typeof (parsedData?.detection as any)?.confidence === 'string'
-        ? ((parsedData?.detection as any).confidence === 'HIGH' ? 99.0 : (parsedData?.detection as any).confidence === 'MEDIUM' ? 75.0 : 40.0)
+        ? (parsedData?.detection as any).confidence
         : null,
       holderName: typeof (parsedData?.holder as any)?.fullName === 'string' ? (parsedData?.holder as any).fullName : null,
       passportNumber: typeof (parsedData?.holder as any)?.passportNumber === 'string' ? (parsedData?.holder as any).passportNumber : null,
@@ -167,6 +167,6 @@ export class ExtractService {
       this.logger.warn(`Saved FAILED extraction record for session: ${session.id}, file: ${file.originalname}`);
     }
 
-    return savedExtraction;
+    return { extraction: savedExtraction, isDuplicate: false };
   }
 }

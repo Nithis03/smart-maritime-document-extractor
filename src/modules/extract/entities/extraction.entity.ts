@@ -34,8 +34,8 @@ export class Extraction {
   @Column({ type: 'varchar', nullable: true })
   applicableRole: string;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
-  confidence: number;
+  @Column({ type: 'varchar', nullable: true })
+  confidence: string;
 
   @Column({ type: 'varchar', nullable: true })
   holderName: string;

@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
-import { SessionModule } from './modules/session/session.module';
 import { ExtractModule } from './modules/extract/extract.module';
 import { LlmModule } from './llm/llm.module';
+import { BullModule } from '@nestjs/bullmq';
 import { JobModule } from './modules/job/job.module';
 import { ValidationModule } from './modules/validation/validation.module';
+import { SessionModule } from './modules/session/session.module';
 
 @Module({
   imports: [
@@ -27,6 +28,16 @@ import { ValidationModule } from './modules/validation/validation.module';
         synchronize: true, // For development Phase 1 only
       }),
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get<string>('REDIS_HOST', 'localhost'),
+          port: configService.get<number>('REDIS_PORT', 6379),
+        },
+      }),
+    }),
     SessionModule,
     ExtractModule,
     LlmModule,
@@ -36,4 +47,4 @@ import { ValidationModule } from './modules/validation/validation.module';
   controllers: [AppController],
   providers: [],
 })
-export class AppModule {}
+export class AppModule { }

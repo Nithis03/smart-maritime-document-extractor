@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Session } from '../../session/entities/session.entity';
+import { Extraction } from '../../extract/entities/extraction.entity';
 
 export enum JobStatus {
   QUEUED = 'QUEUED',
@@ -19,6 +20,13 @@ export class Job {
   @ManyToOne(() => Session, (session: Session) => session.jobs, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'session_id' })
   session: Session;
+
+  @Column({ name: 'extraction_id', type: 'uuid', nullable: true })
+  extractionId: string;
+
+  @ManyToOne(() => Extraction, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'extraction_id' })
+  extraction: Extraction;
 
   @Index('IDX_JOB_STATUS')
   @Column({ type: 'enum', enum: JobStatus, default: JobStatus.QUEUED })
