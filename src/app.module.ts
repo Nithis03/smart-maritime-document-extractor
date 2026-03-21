@@ -6,7 +6,6 @@ import { ExtractModule } from './modules/extract/extract.module';
 import { LlmModule } from './llm/llm.module';
 import { BullModule } from '@nestjs/bullmq';
 import { JobModule } from './modules/job/job.module';
-import { ValidationModule } from './modules/validation/validation.module';
 import { SessionModule } from './modules/session/session.module';
 
 @Module({
@@ -45,7 +44,6 @@ import { SessionModule } from './modules/session/session.module';
     ExtractModule,
     LlmModule,
     JobModule,
-    ValidationModule,
   ],
   controllers: [AppController],
   providers: [],

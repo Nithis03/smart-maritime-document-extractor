@@ -18,7 +18,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExtractService } from './extract.service';
 import { ExtractDocumentDto } from './dto/extract-document.dto';
-import { fileValidationOptions } from '../validation/file-upload.constants';
+import { fileValidationOptions } from './file-upload.constants';
 import { SessionService } from '../session/session.service';
 import { JobService } from '../job/job.service';
 import { Response } from 'express';

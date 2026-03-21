@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { Session } from '../../session/entities/session.entity';
+import { Session } from './session.entity';
 
 @Entity('validations')
 export class Validation {

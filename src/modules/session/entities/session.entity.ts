@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany } from 'typeorm';
 import { Extraction } from '../../extract/entities/extraction.entity';
 import { Job } from '../../job/entities/job.entity';
-import { Validation } from '../../validation/entities/validation.entity';
+import { Validation } from './validation.entity';
 
 @Entity('sessions')
 export class Session {
