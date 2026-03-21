@@ -15,7 +15,6 @@
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
-    "fallbackPolling": "dynamicPriority",
     "resolveJsonModule": true
   }
 }

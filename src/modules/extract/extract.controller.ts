@@ -84,7 +84,6 @@ export class ExtractController {
         estimatedWaitMs: 6000,
       };
     } else {
-      // Sync processing
       const outcome = await this.extractService.extractDocument(file, sessionId);
       const extraction = outcome.extraction;
       
@@ -94,8 +93,8 @@ export class ExtractController {
 
       if (extraction.status === 'FAILED') {
         let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
-        if (extraction.errorCode === 'LLM_JSON_PARSE_FAIL') statusCode = HttpStatus.UNPROCESSABLE_ENTITY; // 422
-        else if (extraction.errorCode === 'LLM_API_ERROR' && extraction.errorMessage?.includes('429')) statusCode = HttpStatus.TOO_MANY_REQUESTS; // 429
+        if (extraction.errorCode === 'LLM_JSON_PARSE_FAIL') statusCode = HttpStatus.UNPROCESSABLE_ENTITY;
+        else if (extraction.errorCode === 'LLM_API_ERROR' && extraction.errorMessage?.includes('429')) statusCode = HttpStatus.TOO_MANY_REQUESTS;
         else if (extraction.errorCode === 'TIMEOUT') statusCode = HttpStatus.GATEWAY_TIMEOUT;
         
         throw new HttpException({

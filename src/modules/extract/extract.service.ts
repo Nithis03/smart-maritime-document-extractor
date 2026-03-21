@@ -9,6 +9,24 @@ import { generateSha256Hash } from '../../common/utils/hash.util';
 import { extractJsonFromText } from '../../common/utils/json-extractor.util';
 import { TimeoutException } from '../../common/utils/timeout.util';
 
+interface ExtractedData {
+  detection?: {
+    documentType?: string;
+    applicableRole?: string;
+    confidence?: string;
+  };
+  holder?: {
+    fullName?: string;
+    passportNumber?: string;
+    sirbNumber?: string;
+  };
+  fields?: Record<string, unknown>;
+  validity?: Record<string, unknown>;
+  medicalData?: Record<string, unknown>;
+  flags?: Record<string, unknown>[];
+  [key: string]: unknown;
+}
+
 @Injectable()
 export class ExtractService {
   private readonly logger = new Logger(ExtractService.name);
@@ -51,11 +69,12 @@ export class ExtractService {
     }
 
     const fileHash = generateSha256Hash(file.buffer);
-    const existingExtraction = await this.extractionRepository.findOne({
+    const duplicates = await this.extractionRepository.find({
       where: { sessionId: session.id, fileHash: fileHash },
     });
 
-    if (existingExtraction) {
+    if (duplicates.length > 0) {
+      const existingExtraction = duplicates[0];
       if (existingExtraction.status === ExtractionStatus.COMPLETE) {
         this.logger.log(`Returning duplicate COMPLETE extraction for session: ${session.id}, hash: ${fileHash}`);
         return { extraction: existingExtraction, isDuplicate: true };
@@ -67,7 +86,7 @@ export class ExtractService {
 
     const base64File = file.buffer.toString('base64');
     let rawLlmResponse: string | null = null;
-    let parsedData: Record<string, unknown> | null = null;
+    let parsedData: ExtractedData | null = null;
     let extractionStatus = ExtractionStatus.COMPLETE;
     let errorCode: string | null = null;
     let errorMessage: string | null = null;
@@ -85,7 +104,7 @@ export class ExtractService {
         const jsonString = extractJsonFromText(rawLlmResponse);
         const parsed = JSON.parse(jsonString);
         if (typeof parsed !== 'object' || parsed === null) throw new Error('Parsed response is not a valid JSON object');
-        parsedData = parsed as Record<string, unknown>;
+        parsedData = parsed as ExtractedData;
       } catch (err) {
         this.logger.warn(`Initial parse failed: ${err instanceof Error ? err.message : String(err)}. Attempting repair...`);
         try {
@@ -93,7 +112,7 @@ export class ExtractService {
           const repairedJsonString = extractJsonFromText(rawLlmResponse);
           const repairedParsed = JSON.parse(repairedJsonString);
           if (typeof repairedParsed !== 'object' || repairedParsed === null) throw new Error('Repaired JSON is still not a valid object');
-          parsedData = repairedParsed as Record<string, unknown>;
+          parsedData = repairedParsed as ExtractedData;
           this.logger.log(`Repair call successfully recovered a valid JSON object.`);
         } catch (repairErr) {
           errorCode = repairErr instanceof TimeoutException || repairErr?.name === 'TimeoutException' ? 'TIMEOUT' : 'LLM_JSON_PARSE_FAIL';
@@ -118,7 +137,7 @@ export class ExtractService {
 
             if (retryScore > originalScore) {
               this.logger.log(`Retry succeeded with higher confidence: ${retryConfidence}. Swapping result.`);
-              parsedData = retryParsed as Record<string, unknown>;
+              parsedData = retryParsed as ExtractedData;
               rawLlmResponse = retryRawResponse;
             } else {
               this.logger.log(`Retry yielded confidence '${retryConfidence}' which is not higher. Keeping original.`);
@@ -142,19 +161,17 @@ export class ExtractService {
       fileName: file.originalname,
       fileHash: fileHash,
 
-      documentType: typeof (parsedData?.detection as any)?.documentType === 'string' ? (parsedData?.detection as any).documentType : null,
-      applicableRole: typeof (parsedData?.detection as any)?.applicableRole === 'string' ? (parsedData?.detection as any).applicableRole : null,
-      confidence: typeof (parsedData?.detection as any)?.confidence === 'string'
-        ? (parsedData?.detection as any).confidence
-        : null,
-      holderName: typeof (parsedData?.holder as any)?.fullName === 'string' ? (parsedData?.holder as any).fullName : null,
-      passportNumber: typeof (parsedData?.holder as any)?.passportNumber === 'string' ? (parsedData?.holder as any).passportNumber : null,
-      sirbNumber: typeof (parsedData?.holder as any)?.sirbNumber === 'string' ? (parsedData?.holder as any).sirbNumber : null,
+      documentType: typeof parsedData?.detection?.documentType === 'string' ? parsedData.detection.documentType : null,
+      applicableRole: typeof parsedData?.detection?.applicableRole === 'string' ? parsedData.detection.applicableRole : null,
+      confidence: typeof parsedData?.detection?.confidence === 'string' ? parsedData.detection.confidence : null,
+      holderName: typeof parsedData?.holder?.fullName === 'string' ? parsedData.holder.fullName : null,
+      passportNumber: typeof parsedData?.holder?.passportNumber === 'string' ? parsedData.holder.passportNumber : null,
+      sirbNumber: typeof parsedData?.holder?.sirbNumber === 'string' ? parsedData.holder.sirbNumber : null,
 
-      fieldsJson: parsedData?.fields ? (parsedData.fields as any) : null,
-      validityJson: parsedData?.validity && typeof parsedData.validity === 'object' ? (parsedData.validity as Record<string, unknown>) : null,
-      medicalDataJson: parsedData?.medicalData && typeof parsedData.medicalData === 'object' ? (parsedData.medicalData as Record<string, unknown>) : null,
-      flagsJson: parsedData?.flags ? (parsedData.flags as any) : null,
+      fieldsJson: parsedData?.fields ? parsedData.fields : null,
+      validityJson: parsedData?.validity && typeof parsedData.validity === 'object' ? parsedData.validity : null,
+      medicalDataJson: parsedData?.medicalData && typeof parsedData.medicalData === 'object' ? parsedData.medicalData : null,
+      flagsJson: parsedData?.flags ? (parsedData.flags as unknown as Record<string, unknown>) : null,
 
       rawLlmResponse: rawLlmResponse || '',
       status: extractionStatus,

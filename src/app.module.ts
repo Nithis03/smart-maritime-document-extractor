@@ -24,7 +24,7 @@ import { SessionModule } from './modules/session/session.module';
         password: configService.get<string>('DB_PASSWORD', 'maritime_password'),
         database: configService.get<string>('DB_NAME', 'maritime_db'),
         autoLoadEntities: true,
-        synchronize: true, // For development Phase 1 only
+        synchronize: true,
       }),
     }),
     BullModule.forRootAsync({

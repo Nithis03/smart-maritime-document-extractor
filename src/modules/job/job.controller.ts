@@ -3,26 +3,26 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { JobService } from './job.service';
 import { JobStatus } from './entities/job.entity';
+import { Extraction } from '../extract/entities/extraction.entity';
 
 @Controller('jobs')
 export class JobController {
   constructor(
     private readonly jobService: JobService,
     @InjectQueue('extractionQueue') private readonly extractionQueue: Queue,
-  ) {}
+  ) { }
 
   @Get(':id')
   async getJob(@Param('id') id: string) {
     const job = await this.jobService.getJob(id);
     let status = job.status;
 
-    // Queue persistence desync handler
     if (status === JobStatus.QUEUED || status === JobStatus.PROCESSING) {
       const bullJob = await this.extractionQueue.getJob(id);
       if (!bullJob) {
-        await this.jobService.updateJobStatus(id, JobStatus.FAILED, { 
-          errorCode: 'LOST_IN_QUEUE', 
-          errorMessage: 'Job was lost natively due to node restart or desync.' 
+        await this.jobService.updateJobStatus(id, JobStatus.FAILED, {
+          errorCode: 'LOST_IN_QUEUE',
+          errorMessage: 'Job was lost natively due to node restart or desync.'
         });
         status = JobStatus.FAILED;
         job.errorCode = 'LOST_IN_QUEUE';
@@ -89,8 +89,8 @@ export class JobController {
       errorMessage: null,
       startedAt: null,
       completedAt: null,
-      extraction: null as any,
-      extractionId: null as any,
+      extraction: null as unknown as Extraction,
+      extractionId: null,
     });
 
     const state = await bullJob.getState();
