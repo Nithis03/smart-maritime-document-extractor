@@ -18,4 +18,11 @@ export class SessionService {
   async findSessionById(id: string): Promise<Session | null> {
     return this.sessionRepository.findOne({ where: { id } });
   }
+
+  async findSessionByIdWithExtractions(id: string): Promise<Session | null> {
+    return this.sessionRepository.findOne({ 
+      where: { id },
+      relations: ['extractions'],
+    });
+  }
 }

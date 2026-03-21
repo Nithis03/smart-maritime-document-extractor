@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany } from 'typeorm';
 import { Extraction } from '../../extract/entities/extraction.entity';
 import { Job } from '../../job/entities/job.entity';
+import { Validation } from '../../validation/entities/validation.entity';
 
 @Entity('sessions')
 export class Session {
@@ -18,4 +19,7 @@ export class Session {
 
   @OneToMany(() => Job, (job: Job) => job.session)
   jobs: Job[];
+
+  @OneToMany(() => Validation, (validation: Validation) => validation.session)
+  validations: Validation[];
 }

@@ -1,6 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, OneToMany, JoinColumn, Index, Unique } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index, Unique } from 'typeorm';
 import { Session } from '../../session/entities/session.entity';
-import { Validation } from '../../validation/entities/validation.entity';
 
 export enum ExtractionStatus {
   COMPLETE = 'COMPLETE',
@@ -78,7 +77,4 @@ export class Extraction {
 
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
-
-  @OneToMany(() => Validation, (validation: Validation) => validation.extraction)
-  validations: Validation[];
 }

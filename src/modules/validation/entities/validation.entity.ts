@@ -1,17 +1,18 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { Extraction } from '../../extract/entities/extraction.entity';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Session } from '../../session/entities/session.entity';
 
 @Entity('validations')
 export class Validation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'extraction_id', type: 'uuid' })
-  extractionId: string;
+  @Index('IDX_VALIDATION_SESSION')
+  @Column({ name: 'session_id', type: 'uuid' })
+  sessionId: string;
 
-  @ManyToOne(() => Extraction, (extraction: Extraction) => extraction.validations, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'extraction_id' })
-  extraction: Extraction;
+  @ManyToOne(() => Session, (session: Session) => session.validations, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'session_id' })
+  session: Session;
 
   @Column({ type: 'jsonb' })
   resultJson: Record<string, unknown>;
