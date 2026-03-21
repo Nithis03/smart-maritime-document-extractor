@@ -38,6 +38,9 @@ import { SessionModule } from './modules/session/session.module';
         },
       }),
     }),
+    BullModule.registerQueue({
+      name: 'extractionQueue',
+    }),
     SessionModule,
     ExtractModule,
     LlmModule,
